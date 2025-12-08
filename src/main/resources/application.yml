@@ -1,0 +1,52 @@
+spring:
+  application:
+    name: kafka-batch-test
+
+  cloud:
+    stream:
+      # Kafka binder configuration
+      kafka:
+        binder:
+          brokers: localhost:9093
+          auto-create-topics: true
+          consumer-properties:
+            # Max poll records = 5 (each poll will fetch max 5 records)
+            max.poll.records: 5
+            # Fetch settings for batching
+            fetch.min.bytes: 1
+            fetch.max.wait.ms: 500
+
+      bindings:
+        # Consumer binding
+        batchConsumer-in-0:
+          destination: test-batch-topic
+          group: batch-consumer-group
+          consumer:
+            # Enable batch mode
+            batch-mode: true
+            # Concurrency = 3 (3 consumer threads)
+            concurrency: 3
+            # Partition count for the topic
+            partitioned: true
+
+      # Function binding
+      function:
+        definition: batchConsumer
+
+# Topic configuration
+kafka:
+  topic:
+    name: test-batch-topic
+    partitions: 3
+    replication-factor: 1
+
+# Server configuration
+server:
+  port: 8080
+
+# Logging
+logging:
+  level:
+    com.example: DEBUG
+    org.springframework.cloud.stream: DEBUG
+    org.springframework.kafka: INFO
