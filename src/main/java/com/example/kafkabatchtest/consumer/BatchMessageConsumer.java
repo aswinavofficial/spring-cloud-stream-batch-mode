@@ -1,5 +1,7 @@
 package com.example.kafkabatchtest.consumer;
 
+import com.example.kafkabatchtest.client.DependentApiClient;
+import com.example.kafkabatchtest.model.ApiRequestBatch;
 import com.example.kafkabatchtest.model.BatchAnalysisResult;
 import com.example.kafkabatchtest.model.TestMessage;
 import com.example.kafkabatchtest.service.BatchAnalysisService;
@@ -19,6 +21,10 @@ import java.util.function.Consumer;
  * Batch message consumer that processes messages in batches and analyzes
  * whether all messages in each batch come from the same partition.
  * 
+ * Now also integrates with:
+ * - Rate limiting (9 TPS per partition using sliding window algorithm)
+ * - Dependent API calls (batched, 5 messages per request)
+ * 
  * Configuration:
  * - batch-mode: true
  * - concurrency: 3
@@ -30,10 +36,13 @@ import java.util.function.Consumer;
 public class BatchMessageConsumer {
 
     private final BatchAnalysisService analysisService;
+    private final DependentApiClient dependentApiClient;
     private final ObjectMapper objectMapper;
 
-    public BatchMessageConsumer(BatchAnalysisService analysisService) {
+    public BatchMessageConsumer(BatchAnalysisService analysisService,
+            DependentApiClient dependentApiClient) {
         this.analysisService = analysisService;
+        this.dependentApiClient = dependentApiClient;
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
     }
@@ -62,6 +71,9 @@ public class BatchMessageConsumer {
             if (partitions.isEmpty()) {
                 partitions = getHeaderList(message, "kafka_receivedPartitionId");
             }
+
+            // Determine the partition (should be same for all messages in batch)
+            int partition = partitions.isEmpty() ? -1 : partitions.get(0);
 
             // Analyze the batch
             Set<Integer> uniquePartitions = new HashSet<>(partitions);
@@ -114,11 +126,16 @@ public class BatchMessageConsumer {
 
             analysisService.recordBatch(result);
 
-            // Add a small delay to simulate processing
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+            // Call the dependent API with rate limiting
+            if (!payloads.isEmpty() && partition >= 0) {
+                ApiRequestBatch apiBatch = ApiRequestBatch.create(
+                        batchId,
+                        partition,
+                        messageIds,
+                        payloads);
+
+                // This will block if rate limited and retry - never rejects
+                dependentApiClient.sendBatch(apiBatch);
             }
         };
     }

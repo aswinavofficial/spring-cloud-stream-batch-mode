@@ -1,7 +1,10 @@
-# Kafka Batch Consumption Test
+# Kafka Batch Consumption Test with Rate Limiting
 
-This Spring Boot application tests **Spring Cloud Stream Kafka batch consumption** with the following configuration:
+This Spring Boot application tests **Spring Cloud Stream Kafka batch consumption** with **rate-limited dependent API integration**.
 
+## Features
+
+### Kafka Batch Consumption
 | Parameter | Value |
 |-----------|-------|
 | Batch Mode | `true` |
@@ -9,9 +12,19 @@ This Spring Boot application tests **Spring Cloud Stream Kafka batch consumption
 | Max Poll Records | `5` |
 | Kafka Partitions | `3` |
 
-## Goal
+### Rate-Limited API Integration
+| Parameter | Value |
+|-----------|-------|
+| Rate Limit | `9 TPS` per partition |
+| Algorithm | Sliding Window Log |
+| Batch Size | `5` messages per API request |
+| Retry Policy | Wait and retry (never reject) |
 
-Verify whether **each batch of messages contains 5 messages from the same partition**.
+## Goals
+
+1. Verify whether **each batch of messages contains messages from the same partition**
+2. Demonstrate **sliding window rate limiting** at 9 TPS per partition
+3. Show that rate-limited requests are **delayed but never rejected**
 
 ## Prerequisites
 
@@ -87,6 +100,8 @@ curl -X DELETE http://localhost:8080/api/test/clear
 
 ## API Endpoints
 
+### Test Endpoints
+
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/api/test/send/{partition}?count=N` | Send N messages to specific partition |
@@ -97,6 +112,25 @@ curl -X DELETE http://localhost:8080/api/test/clear
 | GET | `/api/test/report` | Get detailed analysis report |
 | DELETE | `/api/test/clear` | Clear all recorded results |
 | GET | `/api/test/info` | Get application info and endpoints |
+
+### Rate Limiting Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/ratelimit/statistics` | Get rate limiting statistics |
+| GET | `/api/ratelimit/api-calls` | Get API call statistics |
+| GET | `/api/ratelimit/api-calls/results` | Get all API call results |
+| GET | `/api/ratelimit/report` | Get comprehensive rate limit report |
+| DELETE | `/api/ratelimit/clear` | Clear all rate limit statistics |
+| GET | `/api/ratelimit/info` | Get rate limiting info |
+
+### Mock API Endpoints
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/mock/process` | Process a batch of messages (internal) |
+| GET | `/api/mock/stats` | Get mock API statistics |
+| DELETE | `/api/mock/stats` | Reset mock API statistics |
 
 ## Understanding the Results
 
@@ -391,3 +425,63 @@ The configuration works as expected:
 - All 11 batches have `"allMessagesFromSamePartition": true`
 - Each batch's `partitionsInBatch` array contains only ONE partition number
 - Thread names show clear partition assignment (container-0 → partition 0, container-1 → partition 1, container-2 → partition 2)
+
+---
+
+## 📊 Rate Limiting Test Results
+
+**Test Run Date**: 2025-12-08T18:43:00+05:30
+
+### Configuration
+| Setting | Value |
+|---------|-------|
+| Rate Limit | 9 TPS per partition |
+| Algorithm | Sliding Window Log |
+| Window Size | 1000ms |
+| Per-Partition | Yes |
+
+### Test Results (150 messages stress test)
+
+```json
+{
+  "rateLimitSummary": {
+    "totalRequests": 64,
+    "allowedRequests": 53,
+    "delayedRequests": 11,
+    "delayedPercentage": "17.2%",
+    "averageWaitTimeMs": "131.6"
+  },
+  "apiCallSummary": {
+    "totalCalls": 53,
+    "successfulCalls": 53,
+    "failedCalls": 0,
+    "successRate": "100.0%",
+    "totalMessagesProcessed": 150,
+    "averageDurationMs": "63.7"
+  },
+  "partitionStats": {
+    "0": { "totalCalls": 19, "delayedCalls": 5, "averageWaitTimeMs": 163.6 },
+    "1": { "totalCalls": 16, "delayedCalls": 3, "averageWaitTimeMs": 97.0 },
+    "2": { "totalCalls": 18, "delayedCalls": 3, "averageWaitTimeMs": 113.0 }
+  }
+}
+```
+
+### Key Observations
+
+| Metric | Result |
+|--------|--------|
+| Requests rate limited | 11 (17.2%) ✅ |
+| Average wait when limited | 131.6ms |
+| Requests rejected | 0 (never rejects) ✅ |
+| All messages processed | 150/150 (100%) ✅ |
+| Success rate | 100% ✅ |
+
+### Conclusion
+
+The sliding window log rate limiting algorithm successfully:
+- ✅ **Limits throughput** to 9 TPS per partition
+- ✅ **Never rejects** requests - delays and retries instead
+- ✅ **Per-partition isolation** - each partition has independent rate limiting
+- ✅ **Thread-safe** implementation using `ConcurrentLinkedDeque`
+- ✅ **Accurate statistics** tracking for monitoring and debugging

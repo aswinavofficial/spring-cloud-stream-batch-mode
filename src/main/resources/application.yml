@@ -50,3 +50,17 @@ logging:
     com.example: DEBUG
     org.springframework.cloud.stream: DEBUG
     org.springframework.kafka: INFO
+
+# Rate limiting configuration
+ratelimit:
+  # Transactions per second per partition
+  tps: 9
+  # Sliding window size in milliseconds
+  window-size-ms: 1000
+  # Batch size for API requests
+  batch-size: 5
+
+# Dependent API configuration
+dependent-api:
+  # URL of the dependent API (mock API hosted in same app)
+  url: http://localhost:8080/api/mock/process
