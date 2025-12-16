@@ -10,17 +10,23 @@ import org.springframework.stereotype.Service;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.stream.Collectors;
 
 /**
  * Service to track and analyze API calls to the dependent service.
+ * 
+ * Thread Safety (Virtual Thread Compatible - Java 21+):
+ * - Uses CopyOnWriteArrayList instead of synchronized list to prevent carrier
+ * thread pinning
  */
 @Slf4j
 @Service
 public class ApiCallAnalysisService {
 
-    private final List<ApiCallResult> results = Collections.synchronizedList(new ArrayList<>());
+    // CopyOnWriteArrayList is virtual thread friendly - no synchronized blocks
+    private final List<ApiCallResult> results = new CopyOnWriteArrayList<>();
     private final AtomicLong totalCalls = new AtomicLong(0);
     private final AtomicLong successfulCalls = new AtomicLong(0);
     private final AtomicLong failedCalls = new AtomicLong(0);

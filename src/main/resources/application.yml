@@ -2,6 +2,11 @@ spring:
   application:
     name: kafka-batch-test
 
+  # Virtual threads configuration (Java 21+)
+  threads:
+    virtual:
+      enabled: true
+
   cloud:
     stream:
       # Kafka binder configuration

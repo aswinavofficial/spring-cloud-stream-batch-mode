@@ -4,6 +4,7 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * Thread-safe sliding window log rate limiter implementation.
@@ -17,7 +18,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * Thread Safety:
  * - Uses ConcurrentLinkedDeque for timestamp log
  * - Uses AtomicLong for counters
- * - Synchronized cleanup to prevent race conditions
+ * - Uses ReentrantLock for cleanup (virtual thread safe - no pinning)
+ * 
+ * Virtual Thread Compatibility (Java 21+):
+ * - Avoids synchronized blocks that cause carrier thread pinning
+ * - Uses ReentrantLock which allows virtual threads to unmount when blocked
  */
 @Slf4j
 public class SlidingWindowRateLimiter {
@@ -28,6 +33,9 @@ public class SlidingWindowRateLimiter {
 
     // Thread-safe deque to store request timestamps
     private final ConcurrentLinkedDeque<Long> requestLog = new ConcurrentLinkedDeque<>();
+
+    // ReentrantLock for thread-safe cleanup (virtual thread friendly - no pinning)
+    private final ReentrantLock cleanupLock = new ReentrantLock();
 
     // Statistics
     private final AtomicLong totalRequests = new AtomicLong(0);
@@ -123,17 +131,23 @@ public class SlidingWindowRateLimiter {
 
     /**
      * Remove entries older than the window size.
+     * Uses ReentrantLock instead of synchronized to prevent virtual thread pinning.
      */
-    private synchronized void cleanupExpiredEntries(long now) {
-        long windowStart = now - windowSizeMs;
+    private void cleanupExpiredEntries(long now) {
+        cleanupLock.lock();
+        try {
+            long windowStart = now - windowSizeMs;
 
-        while (!requestLog.isEmpty()) {
-            Long oldest = requestLog.peekFirst();
-            if (oldest != null && oldest < windowStart) {
-                requestLog.pollFirst();
-            } else {
-                break;
+            while (!requestLog.isEmpty()) {
+                Long oldest = requestLog.peekFirst();
+                if (oldest != null && oldest < windowStart) {
+                    requestLog.pollFirst();
+                } else {
+                    break;
+                }
             }
+        } finally {
+            cleanupLock.unlock();
         }
     }
 
